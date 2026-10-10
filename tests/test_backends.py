@@ -52,7 +52,9 @@ def fake_agent(device="cpu", dtype=torch.float32):
 
 # ------------------------------------------------------------------ names and aliases
 for raw, want in (("eager", "eager"), ("Eager", "eager"), ("fast", "tilelang"), ("TileLang", "tilelang"),
-                  ("torch.compile", "compile"), ("inductor", "compile"), ("auto", "auto"), ("onnx", "onnx"), (None, "eager")):
+                  ("torch.compile", "compile"), ("inductor", "compile"), ("auto", "auto"), ("onnx", "onnx"),
+                  ("ane", "ane"), ("ANE", "ane"), ("apple-neural-engine", "ane"), ("apple_neural_engine", "ane"),
+                  (None, "eager")):
     check("normalise(%r)" % (raw,), backends.normalise(raw), want)
 try:
     backends.normalise("cuda-graphs")
@@ -126,6 +128,19 @@ try:
 except BackendUnavailable:
     PASS.append("install(compile, strict)/cpu raises BackendUnavailable")
 check_true("install(strict)/forward untouched after raise", untouched(agent.model))
+
+with warnings.catch_warnings(record=True) as w:
+    warnings.simplefilter("always")
+    be = backends.install(agent, "ane")                   # TinyModel has no ANE weights: declines
+check("install(ane)/cpu falls back to eager", be.name, "eager")
+check("install(ane)/cpu warns exactly once", len([x for x in w if issubclass(x.category, RuntimeWarning)]), 1)
+
+try:
+    backends.install(agent, "ane", strict=True)
+    FAIL.append("install(ane, strict)/cpu did not raise")
+except BackendUnavailable:
+    PASS.append("install(ane, strict)/cpu raises BackendUnavailable")
+check_true("install(ane, strict)/forward untouched after raise", untouched(agent.model))
 
 
 class Doubling(Backend):

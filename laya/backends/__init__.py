@@ -17,14 +17,17 @@ the padding policy.
 """
 from .base import Backend, BackendUnavailable, bucket_shape, pad_batch, warn_fallback
 
-NAMES = ("auto", "eager", "compile", "tilelang", "onnx")
+NAMES = ("auto", "eager", "compile", "tilelang", "onnx", "ane")
 AUTO = "auto"
 
 
 def normalise(name):
     """Accept the documented spellings; anything else is a ValueError naming the choices."""
     key = str(name).strip().lower().replace("_", "-") if name is not None else "eager"
-    aliases = {"fast": "tilelang", "torch": "eager", "torch.compile": "compile", "inductor": "compile"}
+    aliases = {
+        "fast": "tilelang", "torch": "eager", "torch.compile": "compile", "inductor": "compile",
+        "apple-neural-engine": "ane", "apple_neural_engine": "ane",
+    }
     key = aliases.get(key, key)
     if key not in NAMES:
         raise ValueError("unknown backend %r; use one of %s" % (name, ", ".join(NAMES)))
@@ -71,6 +74,12 @@ def make_backend(name: str, agent, **options) -> Backend:
         except ImportError as e:
             raise BackendUnavailable("tilelang is not installed (pip install laya[fast]): %s" % e)
         return TileLangBackend(agent, **options)
+    if key == "ane":
+        try:
+            from .ane import AneBackend
+        except ImportError as e:
+            raise BackendUnavailable("ane backend unavailable: %s" % e)
+        return AneBackend(agent, **options)
     raise BackendUnavailable("backend %r is not a forward replacement; use laya.load(..., backend='onnx') "
                              "or laya.onnx_agent.ONNXAgent directly" % key)
 

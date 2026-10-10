@@ -29,6 +29,23 @@ python -m pip install laya
 
 With [uv](https://docs.astral.sh/uv/), run `uv add laya` in a uv project or `uv pip install laya` in a virtual environment.
 
+On Apple Silicon, install the sibling ANEForge checkout and select the ANE encoder with CPU decision heads:
+
+```bash
+python -m pip install -e ../aneforge -e .
+```
+
+```python
+from laya import Router
+
+router = Router(device="ane")
+questions = {"refund": {"type": "noul", "instructions": "Does the user request a refund?"}}
+result = router.predict("I was charged twice. Please refund the duplicate.", questions)
+print(result["routing"]["model"], result["answers"]["refund"]["noul"])
+```
+
+`laya.load("convaiinnovations/laya", backend="ane")` runs a single checkpoint through the same path. ANEForge compiles each sequence-length bucket on first use; the decision head remains on CPU. The ANE path currently supports ModernBERT-family checkpoints.
+
 Python 3.10 or newer. Optional extras: `laya[serve]` (HTTP server), `laya[mcp]` (MCP server), `laya[langchain]` (LangChain and LangGraph), `laya[llamaindex]` (LlamaIndex selectors), `laya[crewai]` (CrewAI routing), `laya[onnx]` (ONNX Runtime), `laya[fast]` (TileLang GPU fast path). Step-by-step setup for each platform, CPU-only or GPU PyTorch builds, and troubleshooting are in [Installation details](#installation-details).
 
 For TypeScript / Node.js / browser, see [`laya-ts/`](https://github.com/NandhaKishorM/laya/tree/main/laya-ts/). npm releases (`npm install laya-ts`) are published from this repository's `laya-ts-v*` release tags.

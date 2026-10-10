@@ -625,7 +625,12 @@ class Agent(HookRegistry):
         # 1. Device resolution with automatic fallback
         if isinstance(device, str) and device.strip().lower() == "auto":
             device = None
-        if device is not None:
+        is_ane_device = isinstance(device, str) and device.strip().lower() in ("ane", "apple_neural_engine")
+        if is_ane_device:
+            self.device = torch.device("cpu")
+            if backend is None:
+                backend = "ane"
+        elif device is not None:
             target_device = torch.device(device)
             if target_device.type == "cuda" and not torch.cuda.is_available():
                 warnings.warn("Warning: CUDA requested but not available. Falling back to CPU.",
@@ -665,19 +670,42 @@ class Agent(HookRegistry):
             else:
                 self.device = torch.device("cpu")
 
+        is_ane = backend == "ane"
+        if is_ane:
+            self.device = torch.device("cpu")
+
         tok_dir = os.path.join(model_dir, "tokenizer")
         self.tok = _load_tokenizer(tok_dir, self.cfg)
 
         enc_dir = os.path.join(model_dir, "encoder")
-        # build_model skips initialisation of every parameter; the checkpoint supplies them all.
-        self.model = build_model(self.cfg, encoder_dir=enc_dir if os.path.exists(enc_dir) else None,
-                                 pretrained=False)
-
-        # Load weights and verify architectural compatibility
         weights = load_file(weights_path)
-        _verify_compatibility(self.model, self.cfg, weights, model_id_or_path)
 
-        self.model.load_state_dict(weights, strict=True)
+        if is_ane:
+            from .aneforge_encoder import build_ane_model, is_ane_available
+            if not is_ane_available():
+                warnings.warn("Warning: ANE requested but aneforge is not available. Falling back to CPU.",
+                              RuntimeWarning)
+                is_ane = False
+                backend = "eager"
+                self.model = build_model(self.cfg, encoder_dir=enc_dir if os.path.exists(enc_dir) else None,
+                                         pretrained=False)
+                _verify_compatibility(self.model, self.cfg, weights, model_id_or_path)
+                self.model.load_state_dict(weights, strict=True)
+            else:
+                self.model = build_ane_model(
+                    self.cfg,
+                    weights,
+                    encoder_dir=enc_dir if os.path.exists(enc_dir) else None,
+                    pad_token_id=self.tok.pad_token_id or 0,
+                    tokenizer=self.tok,
+                )
+                _verify_compatibility(self.model, self.cfg, weights, model_id_or_path)
+        else:
+            # build_model skips initialisation of every parameter; the checkpoint supplies them all.
+            self.model = build_model(self.cfg, encoder_dir=enc_dir if os.path.exists(enc_dir) else None,
+                                     pretrained=False)
+            _verify_compatibility(self.model, self.cfg, weights, model_id_or_path)
+            self.model.load_state_dict(weights, strict=True)
 
         # ModernBERT's reference_compile defaults to "auto" and will torch.compile the encoder.
         # That is a loss for the batch sizes Laya runs (a handful of questions per call) and can
@@ -851,6 +879,9 @@ class Agent(HookRegistry):
         """
         from . import backends
         name = backends.normalise(name)
+        from .aneforge_encoder import AneEncoderModule
+        if isinstance(self.model.encoder, AneEncoderModule) and name != "ane":
+            raise ValueError("this agent has an ANE encoder; reload with device='cpu' to use another backend")
         with self._gate.write_lock():
             self.deaccelerate()
             if self._compiled:

@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import laya  # noqa: E402
 from laya import Agent, BaseHook, PredictContext, PredictHook, Router, load  # noqa: E402
+from laya import backends  # noqa: E402
 from laya.hooks import HOOK_EVENTS, Hook  # noqa: E402
 from laya.onnx_agent import ONNXAgent  # noqa: E402
 from laya.router import _question_schema  # noqa: E402
@@ -108,6 +109,7 @@ check_param("load", load, "compile", False)
 check_param("load", load, "backend", None)
 check_param("load", load, "onnx_path", None)
 check_param("Agent.__init__", Agent.__init__, "backend", None)
+check("ANE backend spelling", backends.normalise("apple-neural-engine"), "ane")
 check_param("Agent.set_backend", Agent.set_backend, "name", "auto")
 check_param("Agent.set_backend", Agent.set_backend, "strict", False)
 check_true("Agent.backend is a property", isinstance(Agent.backend, property))
