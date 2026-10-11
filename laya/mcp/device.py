@@ -68,6 +68,8 @@ def _check_torch_device(value: str) -> None:
     torch that cannot be imported leaves the value alone, because nothing downstream
     could have used it anyway.
     """
+    if value in ("ane", "apple_neural_engine"):
+        return
     try:
         import torch
     except Exception:  # pragma: no cover - torch is a hard dependency of the package
@@ -155,6 +157,9 @@ def agent_device(agent: Any) -> str | None:
     """
     if agent is None:
         return None
+    backend = getattr(agent, "backend", None)
+    if backend == "ane":
+        return "ane"
     device = getattr(agent, "device", None)
     if device is None:
         return None

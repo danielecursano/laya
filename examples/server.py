@@ -409,6 +409,7 @@ class BatchRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 # App
 # --------------------------------------------------------------------------- #
+os.environ["LAYA_DEVICE"] = "ane"
 
 ROUTER: Optional[Router] = None
 _CFG: Dict[str, Any] = {

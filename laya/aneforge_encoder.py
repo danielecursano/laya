@@ -1,9 +1,15 @@
 """ANEForge ModernBERT encoder with Laya's decision head on CPU."""
+import threading
 from types import SimpleNamespace
 
 import numpy as np
 import torch
 from torch import nn
+
+
+# ANEForge programs reuse input and output buffers, including across requests from
+# FastAPI's thread pool. Serialize dispatch for all ANE-backed Laya agents.
+_ANE_DISPATCH_LOCK = threading.Lock()
 
 
 def is_ane_available():
@@ -23,6 +29,7 @@ class AneEncoderModule(nn.Module):
         self.ane_encoder = encoder
         self.max_len = max_len
         self.pad_token_id = pad_token_id
+        self._active_bucket = None
         self.config = SimpleNamespace(hidden_size=encoder.D, model_type="modernbert", reference_compile=False)
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
@@ -41,13 +48,21 @@ class AneEncoderModule(nn.Module):
         # ANEForge compiles by sequence length; sharing a 16-token bucket avoids a graph
         # for every different request while keeping compilation smaller than max_len.
         bucket = min(self.max_len, max(48, ((length + 15) // 16) * 16))
-        for row in range(rows):
-            padded_ids = np.full((1, bucket), self.pad_token_id, dtype=np.int64)
-            padded_mask = np.zeros((1, bucket), dtype=np.int64)
-            padded_ids[0, :length] = ids[row]
-            padded_mask[0, :length] = masks[row]
-            states = self.ane_encoder.hidden_states(padded_ids, padded_mask)
-            outputs.append(np.asarray(states[0, :length], dtype=np.float32))
+        with _ANE_DISPATCH_LOCK:
+            # ModernBERT-large holds many ANE programs per bucket. Keeping the old bucket
+            # resident can exhaust ANE resources while compiling a new one (op_create err=13).
+            if self._active_bucket is not None and bucket != self._active_bucket:
+                self.ane_encoder.release()
+                self._active_bucket = None
+            for row in range(rows):
+                padded_ids = np.full((1, bucket), self.pad_token_id, dtype=np.int64)
+                padded_mask = np.zeros((1, bucket), dtype=np.int64)
+                padded_ids[0, :length] = ids[row]
+                padded_mask[0, :length] = masks[row]
+                states = self.ane_encoder.hidden_states(padded_ids, padded_mask)
+                outputs.append(np.array(states[0, :length], dtype=np.float32, copy=True))
+            if rows:
+                self._active_bucket = bucket
         result = np.stack(outputs) if outputs else np.empty((0, length, self.ane_encoder.D), np.float32)
         return SimpleNamespace(last_hidden_state=torch.from_numpy(result.copy()).to(input_ids.device))
 
